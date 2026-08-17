@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "just-federated-learning"
+version = "0.1.0"
+description = "Framework-agnostic Federated Learning (FedAvg) library supporting PyTorch and scikit-learn models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = [
+  "federated learning",
+  "fedavg",
+  "federated averaging",
+  "pytorch",
+  "scikit-learn",
+  "machine learning",
+]
+authors = [{ name = "Federated Learning contributors" }]
+classifiers = [
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+pytorch = ["torch>=2.0"]
+sklearn = ["scikit-learn>=1.2"]
+server = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
+test = ["pytest>=8"]
+dev = [
+  "torch>=2.0",
+  "scikit-learn>=1.2",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "httpx>=0.27",
+  "pytest>=8",
+]
+
+[dependency-groups]
+dev = [
+  "torch>=2.0",
+  "scikit-learn>=1.2",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "httpx>=0.27",
+  "pytest>=8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/federated_learning"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
