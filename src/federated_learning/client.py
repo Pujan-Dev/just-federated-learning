@@ -9,6 +9,7 @@ from federated_learning.exceptions import (
     InvalidClientUpdateError,
     InvalidSampleCountError,
 )
+from federated_learning.metrics import evaluate_model, resolve_metrics
 from federated_learning.models import ModelAdapter, create_adapter
 from federated_learning.models.base import Weights
 
@@ -25,11 +26,15 @@ class ClientUpdate:
         Ordered list of the client's model parameters after local training.
     num_samples:
         Number of samples used for local training. Required for weighted FedAvg.
+    metrics:
+        Optional ``{name: value}`` metrics computed on the client's local
+        data after training (e.g. local accuracy or loss).
     """
 
     client_id: str
     weights: Weights
     num_samples: int
+    metrics: dict[str, float] | None = None
 
     def validate(self) -> None:
         if not isinstance(self.client_id, str) or not self.client_id:
@@ -48,6 +53,22 @@ class ClientUpdate:
                 raise InvalidClientUpdateError(
                     f"Weight at index {i} is None."
                 )
+        if self.metrics is not None:
+            if not isinstance(self.metrics, dict):
+                raise InvalidClientUpdateError(
+                    "metrics must be a dict mapping names to numbers."
+                )
+            for name, value in self.metrics.items():
+                if not isinstance(name, str):
+                    raise InvalidClientUpdateError(
+                        f"Metric name must be a string, got {name!r}."
+                    )
+                if isinstance(value, bool) or not isinstance(
+                    value, (int, float)
+                ):
+                    raise InvalidClientUpdateError(
+                        f"Metric {name!r} must be numeric, got {value!r}."
+                    )
 
 
 class FederatedClient:
@@ -81,6 +102,8 @@ class FederatedClient:
         num_samples: int | None = None,
         seed: int | None = None,
         adapter: ModelAdapter | None = None,
+        metrics: Any = None,
+        evaluation_data: Any = None,
     ) -> None:
         if not isinstance(client_id, str) or not client_id:
             raise ValueError("client_id must be a non-empty string.")
@@ -100,6 +123,8 @@ class FederatedClient:
         self.train_kwargs = train_kwargs or {}
         self.seed = seed
         self.adapter = adapter if adapter is not None else create_adapter(model)
+        self.metrics = resolve_metrics(metrics)
+        self.evaluation_data = evaluation_data
 
         if num_samples is not None:
             if not isinstance(num_samples, int) or num_samples <= 0:
@@ -141,8 +166,33 @@ class FederatedClient:
 
     def get_update(self) -> ClientUpdate:
         """Build the update to send to the server after local training."""
+        metrics = None
+        if self.metrics:
+            metrics = self.evaluate()
         return ClientUpdate(
             client_id=self.client_id,
             weights=self.get_weights(),
             num_samples=self.num_samples,
+            metrics=metrics,
         )
+
+    def evaluate(
+        self,
+        data: Any = None,
+        metrics: Any = None,
+    ) -> dict[str, float]:
+        """Compute metrics on ``data`` (defaults to the client's data).
+
+        Uses ``evaluation_data`` if given, otherwise the client's local
+        ``train_data``. ``metrics`` may be a name, list of names, mapping of
+        name -> callable, or a single callable.
+        """
+        resolved = resolve_metrics(metrics if metrics is not None else self.metrics)
+        if not resolved:
+            return {}
+        eval_data = data
+        if eval_data is None:
+            eval_data = self.evaluation_data
+        if eval_data is None:
+            eval_data = self.train_data
+        return evaluate_model(self.adapter, self.model, eval_data, resolved)

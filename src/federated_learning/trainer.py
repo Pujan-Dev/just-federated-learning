@@ -66,3 +66,14 @@ class FederatedTrainer:
     def get_model(self) -> Any:
         """Return the final global model."""
         return self.server.get_model()
+
+    @property
+    def metrics_history(self) -> list[dict]:
+        """Per-round metrics recorded by the server.
+
+        Each entry is ``{"round": int, "global": {...}, "clients": {...}}``.
+        Client metrics are only present when clients are configured with
+        ``metrics``; global metrics only when the server has ``metrics`` and
+        ``evaluation_data`` configured.
+        """
+        return self.server.get_metrics_history()

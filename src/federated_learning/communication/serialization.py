@@ -75,11 +75,14 @@ def deserialize_weights(payload: list[dict[str, Any]]) -> list[np.ndarray]:
 def update_to_dict(update: ClientUpdate) -> dict[str, Any]:
     """Convert a :class:`ClientUpdate` into a JSON-safe dict."""
     update.validate()
-    return {
+    payload: dict[str, Any] = {
         "client_id": update.client_id,
         "num_samples": update.num_samples,
         "weights": serialize_weights(update.weights),
     }
+    if update.metrics:
+        payload["metrics"] = {k: float(v) for k, v in update.metrics.items()}
+    return payload
 
 
 def update_from_dict(payload: dict[str, Any]) -> ClientUpdate:
@@ -97,10 +100,16 @@ def update_from_dict(payload: dict[str, Any]) -> ClientUpdate:
             f"num_samples must be a positive integer, got {num_samples!r}."
         )
     weights = deserialize_weights(payload.get("weights"))
+    metrics = payload.get("metrics")
+    if metrics is not None:
+        if not isinstance(metrics, dict):
+            raise InvalidClientUpdateError("metrics must be a dict.")
+        metrics = {str(k): float(v) for k, v in metrics.items()}
     update = ClientUpdate(
         client_id=client_id,
         weights=weights,
         num_samples=num_samples,
+        metrics=metrics,
     )
     update.validate()
     return update

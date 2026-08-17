@@ -60,6 +60,7 @@ Run the examples:
 ```bash
 uv run python examples/pytorch_federated.py
 uv run python examples/sklearn_federated.py
+uv run python examples/http/run.py    # real-world client/server over HTTP
 ```
 
 ## How it works
@@ -100,6 +101,63 @@ uv run python examples/sklearn_federated.py
 8. The server applies the aggregated weights to the global model.
 9. The new global weights are distributed again.
 10. Repeat for the configured number of rounds.
+
+## Metrics
+
+Track model quality per round and per client without extra plumbing. Metrics
+are framework agnostic: they operate on `(y_true, y_pred)` arrays produced by
+either adapter.
+
+Built-in metrics:
+
+| Name | Type | Notes |
+|------|------|-------|
+| `accuracy` | classification | auto-argmax on 2D score/logit matrices |
+| `precision`, `recall`, `f1` | classification | macro-averaged |
+| `mse`, `mae`, `rmse`, `r2` | regression | |
+
+Custom metrics are just callables `(y_true, y_pred) -> float`.
+
+Client-side: configure a client with `metrics` (and optionally
+`evaluation_data`) and its `get_update()` will include a `metrics` dict. The
+server records those per-client metrics each round:
+
+```python
+client = FederatedClient(
+    client_id="c1",
+    model=model,
+    train_data=(x, y),
+    metrics=["accuracy", "f1"],   # evaluated on the client's local data
+)
+```
+
+Server-side: configure the server with `metrics` and `evaluation_data` to
+evaluate the **global** model after every aggregation:
+
+```python
+server = FederatedServer(
+    model=model,
+    metrics=["accuracy"],
+    evaluation_data=(eval_x, eval_y),
+)
+```
+
+After each `aggregate_and_update()` the server appends an entry to
+`server.metrics_history` (also exposed as `trainer.metrics_history`):
+
+```python
+[
+    {
+        "round": 1,
+        "global": {"accuracy": 0.955},
+        "clients": {"client_0": {"accuracy": 0.975}, "client_1": {"accuracy": 0.85}},
+    },
+    ...
+]
+```
+
+`FederatedClient.evaluate()` and `FederatedServer.evaluate()` return the raw
+`{name: value}` metrics for ad-hoc checks.
 
 ## FedAvg
 
@@ -231,8 +289,8 @@ server = FederatedServer(model=model)
 FastAPIServer(server).run(host="127.0.0.1", port=8000)
 ```
 
-Endpoints: `GET /health`, `GET /global-weights`, `POST /updates`,
-`POST /aggregate`.
+Endpoints: `GET /health`, `GET /global-weights`, `GET /metrics`,
+`POST /updates`, `POST /aggregate`.
 
 Remote client (e.g. on a different machine):
 
@@ -245,9 +303,32 @@ remote = HTTPClient(client, channel=channel)
 remote.run_round()   # fetch global weights, train locally, send update
 ```
 
+`GET /metrics` returns the server's per-round metrics history (global +
+per-client metrics), so an operator can monitor training remotely.
+
 Weights are transferred as an explicit JSON-safe schema (dtype, shape,
 base64-encoded bytes) — **not** pickled Python objects. Incoming updates are
 validated before aggregation.
+
+### Real-world example over HTTP
+
+`examples/http/` shows the full deployment topology over real HTTP:
+
+```bash
+uv run python examples/http/run.py   # server + remote clients in one command
+```
+
+or run each piece as a genuinely separate process:
+
+```bash
+uv run python examples/http/server.py --port 8765            # terminal 1
+uv run python examples/http/client.py --client-id client_0   # terminals 2..4
+curl -X POST http://127.0.0.1:8765/aggregate                 # each round
+curl http://127.0.0.1:8765/metrics                           # monitor
+```
+
+Each round prints the global model accuracy (server-side, on its evaluation
+data) and every client's local accuracy (sent along with its update).
 
 ## Running tests
 
@@ -327,6 +408,14 @@ from federated_learning import (
     ModelAdapter,
     PyTorchAdapter,
     SklearnAdapter,
+    accuracy,
+    precision,
+    recall,
+    f1,
+    mse,
+    mae,
+    rmse,
+    r2,
     UnsupportedModelError,
     InvalidWeightsError,
     WeightShapeMismatchError,

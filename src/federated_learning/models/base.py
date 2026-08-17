@@ -64,6 +64,10 @@ class ModelAdapter(ABC):
         :class:`InvalidWeightsError` on any mismatch.
         """
 
+    @abstractmethod
+    def predict(self, model: Any, x: Any) -> np.ndarray:
+        """Return model predictions for feature input ``x`` as numpy arrays."""
+
     def num_samples(self, train_data: Any) -> int:
         """Best-effort number of samples represented by ``train_data``."""
         raise NotImplementedError(

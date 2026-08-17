@@ -12,6 +12,7 @@ from federated_learning.exceptions import (
     InvalidClientUpdateError,
     InvalidWeightsError,
 )
+from federated_learning.metrics import evaluate_model, resolve_metrics
 from federated_learning.models import ModelAdapter, create_adapter
 from federated_learning.models.base import Weights
 
@@ -24,6 +25,10 @@ class FederatedServer:
 
     The server is transport-agnostic: it works in-process and the HTTP layer
     is an optional add-on.
+
+    Metrics: when ``metrics`` and ``evaluation_data`` are configured, every
+    aggregated round records a ``metrics_history`` entry with the global
+    model's metrics plus the metrics each client reported in its update.
     """
 
     def __init__(
@@ -32,6 +37,8 @@ class FederatedServer:
         *,
         adapter: ModelAdapter | None = None,
         aggregation: FedAvg | None = None,
+        metrics: Any = None,
+        evaluation_data: Any = None,
     ) -> None:
         self.model = model
         self.adapter = adapter if adapter is not None else create_adapter(model)
@@ -39,6 +46,9 @@ class FederatedServer:
         self._updates: list[ClientUpdate] = []
         self.round = 0
         self._weights: Weights | None = None
+        self.metrics = resolve_metrics(metrics)
+        self.evaluation_data = evaluation_data
+        self.metrics_history: list[dict] = []
         if model is not None:
             try:
                 self._weights = self.adapter.get_weights(model)
@@ -46,6 +56,27 @@ class FederatedServer:
                 # e.g. an unfitted scikit-learn estimator: global weights will be
                 # established once the first round of updates is aggregated.
                 self._weights = None
+
+    def evaluate(
+        self,
+        data: Any = None,
+        metrics: Any = None,
+    ) -> dict[str, float]:
+        """Evaluate the global model and return ``{name: value}`` metrics.
+
+        ``data`` defaults to the server's ``evaluation_data``; ``metrics``
+        defaults to the server's configured metrics.
+        """
+        resolved = resolve_metrics(metrics if metrics is not None else self.metrics)
+        if not resolved:
+            return {}
+        eval_data = data if data is not None else self.evaluation_data
+        if eval_data is None:
+            raise ValueError(
+                "Cannot evaluate the global model: no evaluation_data is "
+                "configured on the server."
+            )
+        return evaluate_model(self.adapter, self.model, eval_data, resolved)
 
     @property
     def has_global_weights(self) -> bool:
@@ -104,9 +135,31 @@ class FederatedServer:
         return self.get_global_weights() or self._weights
 
     def aggregate_and_update(self) -> Weights:
-        """Aggregate stored updates and apply them to the global model."""
+        """Aggregate stored updates, apply them, and record round metrics."""
         weights = self.aggregate()
-        return self.update_global_model(weights)
+        self.update_global_model(weights)
+
+        global_metrics: dict[str, float] = {}
+        if self.metrics and self.evaluation_data is not None:
+            global_metrics = evaluate_model(
+                self.adapter, self.model, self.evaluation_data, self.metrics
+            )
+        client_metrics: dict[str, dict[str, float]] = {
+            u.client_id: dict(u.metrics) for u in self._updates if u.metrics
+        }
+        self.metrics_history.append(
+            {
+                "round": self.round,
+                "global": global_metrics,
+                "clients": client_metrics,
+            }
+        )
+        self._updates = []
+        return weights
+
+    def get_metrics_history(self) -> list[dict]:
+        """Per-round metrics: ``{round, global, clients}`` entries."""
+        return list(self.metrics_history)
 
     def reset(self) -> None:
         """Clear stored updates (round counter is preserved)."""

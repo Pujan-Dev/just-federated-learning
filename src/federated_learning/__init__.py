@@ -16,6 +16,16 @@ from federated_learning.exceptions import (
     UnsupportedModelError,
     WeightShapeMismatchError,
 )
+from federated_learning.metrics import (
+    accuracy,
+    f1,
+    mae,
+    mse,
+    precision,
+    r2,
+    recall,
+    rmse,
+)
 from federated_learning.models import ModelAdapter, create_adapter
 from federated_learning.server import FederatedServer
 from federated_learning.trainer import FederatedTrainer
@@ -31,6 +41,14 @@ __all__ = [
     "fedavg",
     "ModelAdapter",
     "create_adapter",
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "mse",
+    "mae",
+    "rmse",
+    "r2",
     "FederatedLearningError",
     "UnsupportedModelError",
     "InvalidWeightsError",

@@ -66,6 +66,21 @@ class PyTorchAdapter(ModelAdapter):
         current = model.state_dict()
         self._check_shapes(list(current.values()), arrays)
 
+    def predict(self, model: nn.Module, x: Any) -> np.ndarray:
+        """Run the model in evaluation mode and return predictions as numpy."""
+        device = next(model.parameters()).device
+        was_training = model.training
+        model.eval()
+        try:
+            with torch.no_grad():
+                x_t = x if isinstance(x, torch.Tensor) else torch.as_tensor(
+                    x, dtype=torch.float32
+                )
+                out = model(x_t.to(device))
+            return out.detach().cpu().numpy()
+        finally:
+            model.train(was_training)
+
     def train(
         self,
         model: nn.Module,

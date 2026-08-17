@@ -44,6 +44,7 @@ if BaseModel is not None:  # pragma: no branch
         client_id: str
         num_samples: int
         weights: list[WeightSpec]
+        metrics: dict[str, float] | None = None
 
 
 def _require(package: str) -> Any:
@@ -86,9 +87,29 @@ class HTTPClientChannel:
         response.raise_for_status()
         return response.json()
 
+    def get_health(self) -> bool:
+        """Probe ``GET /health``; ``True`` once the server is reachable."""
+        try:
+            response = self._client.get(f"{self.base_url}/health")
+            return response.status_code == 200
+        except Exception:  # connection refused while the server boots
+            return False
+
     def send_update(self, update_payload: dict[str, Any]) -> None:
         response = self._client.post(f"{self.base_url}/updates", json=update_payload)
         response.raise_for_status()
+
+    def aggregate(self) -> dict[str, Any]:
+        """Tell the server to aggregate stored updates (POST /aggregate)."""
+        response = self._client.post(f"{self.base_url}/aggregate")
+        response.raise_for_status()
+        return response.json()
+
+    def get_metrics(self) -> list[dict]:
+        """Fetch the server's per-round metrics history (GET /metrics)."""
+        response = self._client.get(f"{self.base_url}/metrics")
+        response.raise_for_status()
+        return response.json()["history"]
 
     def close(self) -> None:
         close = getattr(self._client, "close", None)
@@ -186,6 +207,11 @@ class FastAPIServer:
                 "round": server.round,
                 "weights": serialize_weights(weights) if weights is not None else None,
             }
+
+        @app.get("/metrics")
+        def metrics() -> dict[str, Any]:
+            """Per-round metrics: global model + per-client metrics."""
+            return {"history": server.get_metrics_history()}
 
         @app.post("/updates")
         def receive_update(payload: UpdateIn) -> dict[str, Any]:

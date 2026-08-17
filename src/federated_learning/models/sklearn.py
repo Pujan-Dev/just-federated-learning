@@ -183,6 +183,10 @@ class SklearnAdapter(ModelAdapter):
                     f"{np.asarray(existing).shape}, got {arr.shape}."
                 )
 
+    def predict(self, model: Any, x: Any) -> np.ndarray:
+        """Return ``model.predict(x)`` as a numpy array."""
+        return np.asarray(model.predict(x))
+
     def train(
         self,
         model: Any,
