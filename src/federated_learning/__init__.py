@@ -30,7 +30,7 @@ from federated_learning.models import ModelAdapter, create_adapter
 from federated_learning.server import FederatedServer
 from federated_learning.trainer import FederatedTrainer
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "FederatedClient",

@@ -1,21 +1,57 @@
 name: Upload Python Package
 
 on:
+  push:
+    branches: [main]
   release:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release-build:
+    # Skip the loop triggered by our own version-bump commit
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+
+      - name: Auto-bump patch version (push to main only)
+        if: github.event_name == 'push'
+        run: |
+          CURRENT=$(grep '^version = ' pyproject.toml | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
+          echo "Current version: $CURRENT"
+          # Skip bump if tag for this version already exists (e.g. re-run)
+          if git tag --list | grep -qx "v$CURRENT"; then
+            echo "Tag v$CURRENT already exists, skipping bump"
+            exit 0
+          fi
+          # Skip bump if PyPI already has this version (avoids 400 duplicate upload)
+          if uv run --no-sync python -c "import urllib.request,sys; urllib.request.urlopen('https://pypi.org/pypi/just-federated-learning/$CURRENT/json', timeout=10)" 2>/dev/null; then
+            echo "Version $CURRENT already on PyPI, bumping patch"
+          else
+            echo "Version $CURRENT not on PyPI yet, keeping it"
+            exit 0
+          fi
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+          NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+          echo "Bumping $CURRENT -> $NEXT"
+          sed -i -E "s/^version = \".*\"/version = \"$NEXT\"/" pyproject.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml uv.lock 2>/dev/null || git add pyproject.toml
+          git commit -m "chore: bump version to $NEXT [skip ci]" || echo "Nothing to commit"
+          git push origin HEAD:main
+          echo "NEXT_VERSION=$NEXT" >> "$GITHUB_ENV"
 
       - name: Build release distributions
         run: uv build
